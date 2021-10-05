@@ -2,14 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
-	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/gorilla/mux"
-	"golang.org/x/mod/semver"
 )
 
 func New() http.Handler {
@@ -18,51 +18,35 @@ func New() http.Handler {
 	return router
 }
 
+type npmPackageMetaResponse struct {
+	Versions map[string]NpmPackageVersion `json:"versions"`
+}
+
 type npmPackageResponse struct {
-	Versions map[string]npmPackageVersion `json:"versions"`
-}
-
-type npmPackageVersion struct {
 	Name         string            `json:"name"`
 	Version      string            `json:"version"`
 	Dependencies map[string]string `json:"dependencies"`
 }
 
-type PackageHandlerResponse struct {
-	Name         string            `json:"name"`
-	Version      string            `json:"version"`
-	Dependencies map[string]string `json:"dependencies"`
+type NpmPackageVersion struct {
+	Name         string                        `json:"name"`
+	Version      string                        `json:"version"`
+	Dependencies map[string]*NpmPackageVersion `json:"dependencies"`
 }
 
 func packageHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pkg, err := fetchPackageMeta(vars["package"])
-	if err != nil {
+	pkgName := vars["package"]
+	pkgVersion := vars["version"]
+
+	rootPkg := &NpmPackageVersion{Name: pkgName, Dependencies: map[string]*NpmPackageVersion{}}
+	if err := resolveDependencies(rootPkg, pkgVersion); err != nil {
+		println(err.Error())
 		w.WriteHeader(500)
 		return
 	}
 
-	var match *npmPackageVersion
-
-	version := vars["version"]
-	if version == "latest" {
-		match = latestVersion(pkg.Versions)
-	} else {
-		match = matchingVersion(pkg.Versions, version)
-	}
-
-	if match == nil {
-		w.WriteHeader(400)
-		return
-	}
-
-	resp := PackageHandlerResponse{
-		Name:         match.Name,
-		Version:      match.Version,
-		Dependencies: match.Dependencies,
-	}
-
-	stringified, err := json.MarshalIndent(resp, "", "  ")
+	stringified, err := json.MarshalIndent(rootPkg, "", "  ")
 	if err != nil {
 		println(err.Error())
 		w.WriteHeader(500)
@@ -76,47 +60,64 @@ func packageHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(stringified)
 }
 
-func latestVersion(m map[string]npmPackageVersion) *npmPackageVersion {
-	var versions []string
-	for key := range m {
-		if semver.Prerelease("v"+key) == "" {
-			versions = append(versions, key)
+func resolveDependencies(pkg *NpmPackageVersion, versionConstraint string) error {
+	pkgMeta, err := fetchPackageMeta(pkg.Name)
+	if err != nil {
+		return err
+	}
+
+	concreteVersion, err := highestCompatibleVersion(versionConstraint, pkgMeta)
+	if err != nil {
+		return err
+	}
+	pkg.Version = concreteVersion
+
+	npmPkg, err := fetchPackage(pkg.Name, pkg.Version)
+	if err != nil {
+		return err
+	}
+	for dependencyName, dependencyVersionConstraint := range npmPkg.Dependencies {
+		dep := &NpmPackageVersion{Name: dependencyName, Dependencies: map[string]*NpmPackageVersion{}}
+		pkg.Dependencies[dependencyName] = dep
+		if err := resolveDependencies(dep, dependencyVersionConstraint); err != nil {
+			return err
 		}
 	}
-
-	if len(versions) == 0 {
-		return nil
-	}
-
-	sort.SliceStable(versions, func(i, j int) bool { return semver.Compare("v"+versions[i], "v"+versions[j]) > 0 })
-	if match, ok := m[versions[0]]; ok {
-		return &match
-	}
 	return nil
 }
 
-func matchingVersion(m map[string]npmPackageVersion, v string) *npmPackageVersion {
-	if !strings.HasPrefix(v, "v") {
-		v = "v" + v
+func highestCompatibleVersion(constraintStr string, versions *npmPackageMetaResponse) (string, error) {
+	constraint, err := semver.NewConstraint(constraintStr)
+	if err != nil {
+		return "", err
 	}
-
-	canonical := strings.TrimPrefix(semver.Canonical(v), "v")
-	if canonical == "" {
-		return nil
+	filtered := filterCompatibleVersions(constraint, versions)
+	sort.Sort(filtered)
+	if len(filtered) == 0 {
+		return "", errors.New("no compatible versions found")
 	}
-
-	if match, ok := m[canonical]; ok {
-		return &match
-	}
-	return nil
+	return filtered[len(filtered)-1].String(), nil
 }
 
-func fetchPackageMeta(p string) (*npmPackageResponse, error) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/%s", p))
+func filterCompatibleVersions(constraint *semver.Constraints, pkgMeta *npmPackageMetaResponse) semver.Collection {
+	var compatible semver.Collection
+	for version := range pkgMeta.Versions {
+		semVer, err := semver.NewVersion(version)
+		if err != nil {
+			continue
+		}
+		if constraint.Check(semVer) {
+			compatible = append(compatible, semVer)
+		}
+	}
+	return compatible
+}
+
+func fetchPackage(name, version string) (*npmPackageResponse, error) {
+	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/%s/%s", name, version))
 	if err != nil {
 		return nil, err
 	}
-
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -125,6 +126,23 @@ func fetchPackageMeta(p string) (*npmPackageResponse, error) {
 	}
 
 	var parsed npmPackageResponse
+	_ = json.Unmarshal(body, &parsed)
+	return &parsed, nil
+}
+
+func fetchPackageMeta(p string) (*npmPackageMetaResponse, error) {
+	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/%s", p))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed npmPackageMetaResponse
 	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
 		return nil, err
 	}

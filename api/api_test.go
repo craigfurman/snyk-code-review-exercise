@@ -25,13 +25,18 @@ func TestPackageHandler(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.Nil(t, err)
 
-	var data api.PackageHandlerResponse
+	var data api.NpmPackageVersion
 	err = json.Unmarshal(body, &data)
 	require.Nil(t, err)
 
 	assert.Equal(t, "react", data.Name)
 	assert.Equal(t, "16.13.0", data.Version)
-	assert.Equal(t, "^1.1.0", data.Dependencies["loose-envify"])
-	assert.Equal(t, "^4.1.1", data.Dependencies["object-assign"])
-	assert.Equal(t, "^15.6.2", data.Dependencies["prop-types"])
+
+	// TODO these assertions are rubbish, even for the intentionally-not-great PR.
+	// Let's talk. We could hardcode a dependency tree for some package version,
+	// e.g. react 16.13.0. These tests will break over time as new patch versions
+	// of dependencies are released that satisfy the same constraints, but that's
+	// almost a good thing for the exercise. Discussing what we'd want IRL is a
+	// good interview topic.
+	assert.Len(t, data.Dependencies, 3)
 }
