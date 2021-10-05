@@ -1,0 +1,20 @@
+---
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: "golang:1.17-alpine"
+    steps:
+      - checkout
+      - run:
+          environment:
+            CGO_ENABLED: 0
+          command: |
+            go test ./...
+
+workflows:
+  version: 2
+  pipeline:
+    jobs:
+      - test
