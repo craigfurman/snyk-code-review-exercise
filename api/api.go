@@ -71,12 +71,12 @@ func packageHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	w.Write(stringified)
+	_, _ = w.Write(stringified)
 }
 
 func latestVersion(m map[string]npmPackageVersion) *npmPackageVersion {
 	var versions []string
-	for key, _ := range m {
+	for key := range m {
 		if semver.Prerelease("v"+key) == "" {
 			versions = append(versions, key)
 		}
@@ -94,7 +94,7 @@ func latestVersion(m map[string]npmPackageVersion) *npmPackageVersion {
 }
 
 func matchingVersion(m map[string]npmPackageVersion, v string) *npmPackageVersion {
-	if strings.HasPrefix(v, "v") == false {
+	if !strings.HasPrefix(v, "v") {
 		v = "v" + v
 	}
 
@@ -123,7 +123,7 @@ func fetchPackageMeta(p string) (*npmPackageResponse, error) {
 	}
 
 	var parsed npmPackageResponse
-	json.Unmarshal([]byte(body), &parsed)
+	_ = json.Unmarshal([]byte(body), &parsed)
 
 	return &parsed, nil
 }
