@@ -19,7 +19,7 @@ func New() http.Handler {
 }
 
 type npmPackageMetaResponse struct {
-	Versions map[string]NpmPackageVersion `json:"versions"`
+	Versions map[string]npmPackageResponse `json:"versions"`
 }
 
 type npmPackageResponse struct {
