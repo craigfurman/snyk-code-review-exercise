@@ -22,7 +22,8 @@ func TestPackageHandler(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	require.Nil(t, err)
 
 	var data api.PackageHandlerResponse
 	err = json.Unmarshal(body, &data)

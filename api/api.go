@@ -71,6 +71,8 @@ func packageHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	// Ignoring ResponseWriter errors
 	_, _ = w.Write(stringified)
 }
 
@@ -123,7 +125,9 @@ func fetchPackageMeta(p string) (*npmPackageResponse, error) {
 	}
 
 	var parsed npmPackageResponse
-	_ = json.Unmarshal([]byte(body), &parsed)
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		return nil, err
+	}
 
 	return &parsed, nil
 }
