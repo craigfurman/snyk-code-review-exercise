@@ -12,9 +12,20 @@ jobs:
             CGO_ENABLED: 0
           command: |
             go test ./...
+  lint:
+    docker:
+      - image: "golangci/golangci-lint:v1.42.1"
+    steps:
+      - checkout
+      - run:
+          environment:
+            CGO_ENABLED: 0
+          command: |
+            golangci-lint run -v
 
 workflows:
   version: 2
   pipeline:
     jobs:
       - test
+      - lint
