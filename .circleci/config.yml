@@ -5,6 +5,7 @@ jobs:
   test:
     docker:
       - image: "golang:1.17-alpine"
+    resource_class: "small"
     steps:
       - checkout
       - run:
@@ -15,6 +16,7 @@ jobs:
   lint:
     docker:
       - image: "golangci/golangci-lint:v1.42.1"
+    resource_class: "small"
     steps:
       - checkout
       - run:
